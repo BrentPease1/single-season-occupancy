@@ -13,7 +13,7 @@ library(corrplot) #for plotting correlations
 
 #capture (detection) history
 data <- read.csv("deer_detection_history.csv",header=T) #capture history created in ```Create_Capture_History.R```
-str(data)
+str(data) 
 
 y <- as.matrix(data[,2:24])    #specify which columns contain capture history
 
