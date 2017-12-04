@@ -42,19 +42,10 @@ for(i in 1:2){                        #'1:2' specifies the number of covariates 
 pairs(cbind(canopy.orig, dist.orig))  #
 
 #Correlation matrix
-cov.cor <- cor(covs) # correlation matrix
+cat("Correlation matrix of occupancy covariates:\n")
+print(cov.cor <- cor(covs)) # correlation matrix
 par(mfrow = c(1,1), mar=rep(0,4)) #reset plotting prelims
 source('correlation_pvalue.R')
-col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
-corrplot(cov.cor, method="color", col=col(200),  
-         type="upper", order="hclust", 
-         addCoef.col = "black", # Add coefficient of correlation
-         tl.col="black", tl.srt=45, #Text label color and rotation
-         # Combine with significance
-         p.mat = p.mat, sig.level = 0.05, insig = "blank", 
-         # hide correlation coefficient on the principal diagonal
-         diag=TRUE 
-)
 
 
 ##################################
