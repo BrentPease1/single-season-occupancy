@@ -18,7 +18,7 @@ str(data)
 y <- as.matrix(data[,2:24])    #specify which columns contain capture history
 
 #Occupancy and detection covariates
-covariates <- read.csv("detection_covariates.csv",header=TRUE)
+covariates <- read.csv("detection_covariates.csv",header=TRUE) #simulated detection covariates
 str(covariates)
 
 # Unstandardized, original values of occupancy covariates
