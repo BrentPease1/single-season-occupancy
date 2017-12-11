@@ -1,5 +1,4 @@
 # single-season occupancy using 'unmarked'
-# Adapted from Kery & Royle (2016) Applied Hierarchical Modeling in Ecology (chapter 10)
 # Intended to be a companion and extended workflow from www.github.com/BrentPease1/capture-history.git, which creates a capture (detection) history from eMammal data
 library(unmarked)
 library(data.table)
@@ -11,14 +10,14 @@ library(corrplot) #for plotting correlations
 ##### Read in data sets ######
 ##############################
 
-#capture (detection) history
-data <- read.csv("deer_detection_history.csv",header=T) #capture history created in ```Create_Capture_History.R```
+#Read in the capture (detection) history
+data <- read.csv("deer_detection_history.csv",header=T) # This capture history was created with ```Create_Capture_History.R``` in the @BrentPease1 'capture-history' GitHub repository
 str(data) 
 
 y <- as.matrix(data[,2:24])    #specify which columns contain capture history
 
-#Occupancy and detection covariates
-covariates <- read.csv("detection_covariates.csv",header=TRUE) #simulated detection covariates
+#Read in covariates
+covariates <- read.csv("detection_covariates.csv",header=TRUE) #These are just example (simulated) covariates. 
 str(covariates)
 
 # Unstandardized, original values of occupancy covariates
@@ -34,9 +33,9 @@ date.orig <- as.matrix(covariates[,4:26]) #julian date
 ###########################################
 
 # Overview of occupancy covariates
-covs <- cbind(canopy.orig, dist.orig) #cbind all occupancy covariates
-par(mfrow = c(3,3), mar=c(rep(1,4)))                   #define plotting prelims
-for(i in 1:2){                        #'1:2' specifies the number of covariates in 'covs'. 
+covs <- cbind(canopy.orig, dist.orig)  #First, ```cbind``` all occupancy covariates
+par(mfrow = c(3,3), mar=c(rep(1,4)))   #define plotting prelims
+for(i in 1:2){                         #'1:2' specifies the number of covariates in `covs` object. 
   hist(covs[,i], breaks = 50, col = "grey", main = colnames(covs)[i])
 }
 pairs(cbind(canopy.orig, dist.orig))  #
@@ -45,7 +44,7 @@ pairs(cbind(canopy.orig, dist.orig))  #
 cat("Correlation matrix of occupancy covariates:\n")
 print(cov.cor <- cor(covs)) # correlation matrix
 par(mfrow = c(1,1), mar=rep(0,4)) #reset plotting prelims
-source('correlation_pvalue.R')
+source('correlation_pvalue.R') #R script is within this repository. It felt cluttered inside of this Script so I just sourced it. Not neccessary for analysis but it is a nice visualization of covariates - especially when n>>1
 
 
 ##################################
@@ -72,14 +71,14 @@ summary(umf)
 summary(fm1 <- occu(~1 ~1, data=umf))
 
 #Look at the occupancy and detection estimates on probability scale
-#Note that 'backTransform' will only work without intermediate steps if inquiring about the null model
+#Note that 'backTransform' will only work without intermediate steps if inquiring about the null model. See later for intermediate steps with covariates
 print(occ.null <- backTransform(fm1, type="state"))
 print(det.null <- backTransform(fm1, type="det"))
 
 
-#####################
-#### DETECTION ######
-#####################
+###########################
+#### DETECTION MODELS #####
+###########################
 
 # Fit a series of models for detection first and do model selection
 fm2 <- occu(~date ~1, data=umf)
@@ -97,8 +96,8 @@ print(ms <- modSel(fms))
 
 #Look at estimates of top model on probability scale
 #Need to first use LinearComb() since there are covariates involved
-lc <- linearComb(fm2, c(1, 1), type="det") # Estimate abundance on the log scale when forest=0
-backTransform(lc)                           # Abundance on the original scale 
+lc <- linearComb(fm2, c(1, 1), type="det") # Estimate detection on the log scale
+backTransform(lc)                           # detecion on the original scale 
 
 
 ###################
@@ -131,7 +130,7 @@ fms2 <- fitList("p(date)psi(.)"                      = fm2,
 ############################
 #Conduct a MacKenzie-Bailey Goodness-of-Fit test
 
-#system.time(gof.boot <- mb.gof.test(fm7, nsim = 1000)) #Note: This can take a long time (hours). Best to run it when you are ready, then save the output as .Rdata file to easily load. I suggest once you have the output from this, hash (#) out the mb.gof.test line
+#system.time(gof.boot <- mb.gof.test(fm7, nsim = 1000)) #Note: This can take a long time (hours). Best to run it when you are ready, then save the output as .Rdata file to easily load. I suggest once you have the output from this, hash (#) out the mb.gof.test line to prevent re-running
 #save(gof.boot, file="gof.boot_fm7.Rdata")
 #print(gof.boot)
 
@@ -141,18 +140,19 @@ fms2 <- fitList("p(date)psi(.)"                      = fm2,
 
 # Create new covariates for prediction ('prediction covs')
 # Really only need the covariates that were in our top model 
-orig.canopy <- seq(0, 100,,87)# 'Create 87 values ranging from 0-100, and R determines the spacing between numbers (,,)'
+orig.canopy <- seq(0, 100,,87)# 'Create 87 values (number of sites) ranging from 0-100 (scale of covariate), and let R determine the spacing between numbers (,,)'
 orig.date <- seq(1, 230,,87)
 
-can.pred <- (orig.canopy - means[1]) / sds[1] # Standardize them like actual covs
+can.pred <- (orig.canopy - means[1]) / sds[1] # Standardize prediction values like actual covs
 date.pred <- (orig.date - means[3]) / sds[3]
 
 
 # Obtain predictions
 newData <- data.frame(canopy=can.pred) 
-#Note: if your top model has more than one covariate, do something like this: newData <- data.fream(cov1 = cov1.pred, cov2=0), if you want to predict values of cov1 and vice versa for cov2 
+#Note: if your top model has more than one covariate, do something like this: newData <- data.fream(cov1 = cov1.pred, cov2=0)
 pred.occ.canopy <- predict(fm7, type="state", newdata=newData, appendData=TRUE)
 
+#detection predictions
 newData <- data.frame(date=date.pred)
 pred.det.date <- predict(fm7, type="det", newdata=newData, appendData=TRUE)
 
