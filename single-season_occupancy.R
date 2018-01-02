@@ -1,6 +1,16 @@
 # single-season occupancy using 'unmarked'
+#Brent Pease GitHub: @BrentPease1
 # Intended to be a companion and extended workflow from www.github.com/BrentPease1/capture-history.git, which creates a capture (detection) history from eMammal data
+
+#Installs required packages if not currently installed on machine
+list.of.packages <- c("unmarked","here","data.table","AICcmodavg","corrplot")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+
+#Load libraries
 library(unmarked)
+library(here)
 library(data.table)
 library(AICcmodavg)
 library(corrplot) #for plotting correlations
