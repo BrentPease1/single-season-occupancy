@@ -1,8 +1,8 @@
-# single-season occupancy using 'unmarked'
-#Brent Pease GitHub: @BrentPease1
+# Single-species, Single-season Occupancy Model using package 'unmarked'
+# Brent Pease GitHub: @BrentPease1
 # Intended to be a companion and extended workflow from www.github.com/BrentPease1/capture-history.git, which creates a capture (detection) history from eMammal data
 
-#Installs required packages if not currently installed on machine
+#Install required packages if not currently installed on machine
 list.of.packages <- c("unmarked","here","data.table","AICcmodavg","corrplot")
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
@@ -24,7 +24,7 @@ library(corrplot) #for plotting correlations
 data <- read.csv("deer_detection_history.csv",header=T) # This capture history was created with ```Create_Capture_History.R``` in the @BrentPease1 'capture-history' GitHub repository
 str(data) 
 
-y <- as.matrix(data[,2:24])    #specify which columns contain capture history
+y <- as.matrix(data[,2:24])    #specify which columns in your dataset contain capture history
 
 #Read in covariates
 covariates <- read.csv("detection_covariates.csv",header=TRUE) #These are just example (simulated) covariates. 
