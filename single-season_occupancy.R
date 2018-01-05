@@ -17,7 +17,7 @@ library(corrplot) #for plotting correlations
 
 
 ##############################
-##### Read in data sets ######
+##### Read in data sets #######
 ##############################
 
 #Read in the capture (detection) history
