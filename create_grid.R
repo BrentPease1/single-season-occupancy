@@ -37,15 +37,13 @@ nsurveys <- 4
 nyears <- 1
 
 #define parameter values
-alpha <- -0.05
-beta <- .15
+alpha <- -0.5
+beta <- 1.5
 
-#define psi
-psi <- array(NA, dim = c(nsites,nyears))
-for(i in 1:nsites){
-  for(t in 1:nyears){
-psi[i,t] <- alpha + beta*(numnn[i]+1/numnn[i])}}
-psi <- plogis(psi)
+
+#define occupancy across sites
+psi <- 0.4
+
 
 #define p
 p <- 0.3
@@ -57,15 +55,19 @@ y <- array(NA, dim = c(nsites,nsurveys))
 
 
 #Generate presence/absence (truth)
-for(i in 1:nsites){
-  for(t in 1:nyears){
-z[i,t] <- rbinom(1,1,psi)
-  }
+z <- rbinom(mat.row*mat.col,1,psi)
+
+#Calculate autocovariate
+x <- array(NA, dim = c(mat.row*mat.col, nyears))
+for(i in 1:nG){
+  for(j in 1:numnn[i]){
+    x[i] <- sum(z[N[i,]], na.rm = TRUE)/numnn[i]
+  }   
 }
 
 
 #package up objects into a list
-grid.data <- list(z=z,numnn=numnn,N = N, nG = nG, griddim = griddim)
+grid.data <- list(z=z,numnn=numnn,N = N, nG = nG, griddim = griddim, x=x)
 
 #Visualize the truth
 Zmat<-matrix(NA,nrow=mat.row,ncol=mat.col) #first, create a matrix to hold values of z
