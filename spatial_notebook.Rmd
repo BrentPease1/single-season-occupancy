@@ -8,7 +8,7 @@ output:
 ---
 
 This chunk contains the script to generate **z**, the simulated true state of occurrence, where psi is a function of the number of occupied neighbors. We'll test whether these data are indeed spatially autocorrelated with a *join count test*.
-```{r libraries, warning = FALSE}
+```{r libraries, warning = FALSE,message = FALSE}
 #simulate Gridded data and neighborhood effect
 library(sp)
 library(raster)
@@ -129,7 +129,7 @@ We see that both the number of absence joins and presence joins are greater than
 ####So, the test suggests that we did not simulate spatially correlated data. I'll repeat this test but with data that have an explicit spatial structure.  
 
 We need to load additional libraries  
-```{r spatial autocorrelation libraries, warning=FALSE}
+```{r spatial autocorrelation libraries, message=FALSE, warning = FALSE}
 #Load Libraries
 library(raster)
 library(gstat)
@@ -141,7 +141,7 @@ library(R2WinBUGS)
 
 set.seed(74) #fix draws
 ```
-Next we create a matrix and then generate a random variable, drawn from a multivariate normal distribution with \mu = 0 and \sigma = \exp(-\phi \times distance)
+Next we create a matrix and then generate a random variable, drawn from a multivariate normal distribution with $$ X \sim \mbox{MVN}(0, \Sigma) $$ where $$ \Sigma = \exp(-\phi \times distance) $$
 ```{r set up lattice and generate mvrnorm}
 # Set up a square lattice region
 simgrid <- expand.grid(1:50, 1:50)
@@ -163,7 +163,7 @@ par(mfrow = c(1, 2))
 plot(1:100, exp(-phi * 1:100), type = "l", xlab = "Distance", ylab = "Correlation")
 plot(Xraster)
 ```
-Next, generate occurrence data as a function of the `mvrnorm` autocovariate
+Now we generate occurrence data as a function of the `mvrnorm` autocovariate
 ```{r generate spatial occurrence data}
 # Define coefficients of the occurrence-elevation regression
 # Modeling a quadratic effect
@@ -172,7 +172,6 @@ beta1 <- 2.5
 
 #occupancy as a function of the spatially autocorrelated covariate
 psi1 <- plogis(beta0 + beta1*values(Xraster))
-
 
 # Plot the results
 par(mfrow = c(1, 1))
@@ -191,8 +190,10 @@ OK, now simulate sampling in the grid. We'll visit 200 locations
 sites <- sample(1:n, 200)
 coords <- coordinates(occu)[sites, ]
 
+#package data
 fulldata <- data.frame(coords, Xvar = extract(Xraster, coords), occu = extract(occu, coords))
 
+#visualize
 plot(occu, main = "Occurrence distribution with sampling sites")
 points(coords, pch = 19, cex=0.5)
 ```
@@ -236,59 +237,11 @@ head(adjmat)
 ```
 The `wbneigh` object has our sets of neighbors, weights of each neighbor, and the cardinality of each site.  
 
-Define the model in WinBUGS
-```{r winbugs autologistic model}
-setwd(here("bugs_output")) 
-   sink("panel94_model.txt")
-    cat("
-        model{
-        
-        alpha ~ dnorm(0,.1)
-        beta  ~ dnorm(0,.1)
-        p ~ dunif(0,1)
-        
-        for(i in 1:nG){
-        x[i,1]<-0
-        for(j in 1:numnn[i]){
-        x[i,j+1]<-x[i,j]+z[N[i,j]]
-        }
-        logit(psi[i])<- alpha + beta*(x[i,numnn[i]+1]/numnn[i])
-        z[i]~dbern(psi[i])
-        mu[i]<-z[i]*p
-        y[i]~dbin(mu[i],J)
-        }
-        }
-        ",fill=TRUE)
-sink()
-
-```
-Prepare the data for WinBUGS and commit settings
-```{r win.data and settings}
-#Bundle data
-win.data <- list (y=y, numnn=cardneigh, N=adjmat, J=nsurveys, nG = ncell(occu))
-
-#Set initial values
-zst<-ifelse(y>0,1,0)  #starting values for z
-inits <- function()
-  list (z=zst, alpha=rnorm(1),beta=rnorm(1), p=runif(1) )
-
-#parameters to be monitored
-parameters <- c("alpha","beta","p")
-
-#MCMC settings
-ni=6000;nb=1000;nt=1;nc=3
-```
-Call WinBUGS from R
-```{r call bugs from R}
-setwd(here("bugs_output"))
-out <- bugs(data = win.data, inits = inits, parameters.to.save = parameters, model.file = "panel94_model.txt", n.thin=nt,n.chains=nc, n.burnin=nb, n.iter=ni, debug=FALSE, DIC = FALSE, bugs.directory = BD, working.directory = here("bugs_output"))
-out
-```
-####Well, that didn't work. Remember, we simulated psi as alpha = -1, beta = 2.5. Let's try a different route.
+Attribute the sites to a grid cell
 ```{r grid cell attributes}
 gridmember <- extract(rx, coordinates(occu))
 ```
-Specify BUGS model
+Define the model in WinBUGS
 ```{r new bugs model}
 # Specify model in BUGS language
 setwd(here("bugs_output"))
@@ -322,7 +275,7 @@ sink()
 Prepare the data for WinBUGS and commit settings
 ```{r new win.bugs data and settings}
 #Bundle data
-win.data2 <- list (y=y, cardneigh=cardneigh, adjmat=adjmat, J=nsurveys, ncell = ncell(occu))
+win.data <- list (y=y, cardneigh=cardneigh, adjmat=adjmat, J=nsurveys, ncell = ncell(occu))
 
 #Set initial values
 zst<-ifelse(y>0,1,0)  #starting values for z
@@ -335,10 +288,10 @@ parameters <- c("alpha","beta","p")
 #MCMC settings
 ni=6000;nb=1000;nt=1;nc=3
 ```
-#Call WinBUGS from R
+Call WinBUGS from R
 ```{r call winBUGS out2}
 setwd(here("bugs_output"))
-out2 <- bugs(data = win.data2, inits = inits, parameters.to.save = parameters, model.file = "auto_occ.txt", n.thin=nt,n.chains=nc, n.burnin=nb, n.iter=ni, debug=FALSE, DIC = FALSE, bugs.directory = BD, working.directory = here("bugs_output"))
-out2
+out <- bugs(data = win.data, inits = inits, parameters.to.save = parameters, model.file = "auto_occ.txt", n.thin=nt,n.chains=nc, n.burnin=nb, n.iter=ni, debug=FALSE, DIC = FALSE, bugs.directory = BD, working.directory = here("bugs_output"))
+out
 ```
 
