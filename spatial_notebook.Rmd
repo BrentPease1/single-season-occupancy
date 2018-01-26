@@ -7,7 +7,7 @@ output:
   pdf_document: default
 ---
 
-This chunk contains the script to generate **z**, the simulated true state of occurrence, where psi is a function of the number of occupied neighbors. We'll test whether these data are indeed spatially autocorrelated with a *join count test*.
+Load Libraries
 ```{r libraries, warning = FALSE,message = FALSE}
 #simulate Gridded data and neighborhood effect
 library(sp)
@@ -16,6 +16,7 @@ library(spdep)
 #same dataset while learning
 set.seed(74)
 ```
+This chunk contains the script to generate **z**, the simulated true state of occurrence, where psi is a function of the number of occupied neighbors. We'll test whether these data are indeed spatially autocorrelated with a *join count test*.
 ```{r simulate z with non-spatial neighborhood}
 #Create matrix (lattice) of discrete, non-overlapping units
 mat.row <- 50
@@ -105,10 +106,8 @@ coordinates(add) <- ~x + y
 cell.ras <- rasterize(add, r, field=add$z)
 
 #Visualize
-par(mar = c(4,4,4,4), mfrow = c(1,2))
+par(mar = c(4,4,4,4), mfrow = c(1,1))
 plot(cell.ras)  #without cell borders
-plot(cell.ras)  #with cell borders
-plot(rasterToPolygons(cell.ras), add=TRUE, border='black', lwd=1)
 ```
 
 Calculate neighborhood weights and then conduct the *join count test*
@@ -154,7 +153,7 @@ n <- nrow(simgrid)
 distance <- as.matrix(dist(simgrid[, 1:2]))
 
 # Generate random variable
-phi <- 1.5
+phi <- 0.05
 X <- mvrnorm(1, rep(0,n),exp(-phi*distance))
 # Visualize results
 Xraster <- rasterFromXYZ(cbind(simgrid[, 1:2] - 0.5, X))
@@ -181,7 +180,7 @@ plot(values(Xraster), psi1, cex = 0.5, main = expression(psi == f(X)))
 occu <- rbinom(n,1,psi1)
 occu <- rasterFromXYZ(cbind(coordinates(Xraster), occu))
 par(mfrow = c(1,1))
-plot(occu, main = "Presence distribution")
+plot(occu, main = "Occurrence")
 ```
 OK, now simulate sampling in the grid. We'll visit 200 locations
 ```{r sample the grid}
@@ -213,7 +212,7 @@ joincount.mc(as.factor(occu@data@values), lwb.occu.queen, nsim = 999)
 #####Time to see if we can detect this spatial autocorrelation in a spatial autologistic model, following Royle and Dorazio 2008, chapter & section 9.5
 
 Set libraries
-```{r load WinBUGS libraries and set bugs directory, warning=FALSE}
+```{r load WinBUGS libraries and set bugs directory, message = FALSE, warning=FALSE}
 library(R2WinBUGS)
 library(here)
 BD <- "C:/Users/Brent/Documents/WinBUGS14/"
@@ -226,7 +225,10 @@ nsurveys <- 3
 y <- rbinom(length(occu@data@values),nsurveys,values(occu)*p_init)
 ```
 We also need to extract and format the `nb.occu.queen` object to be compatible with winBUGS
-```{r nb2wb}
+```{r autologistic neighborhood}
+#attribute the sites to a grid cell
+gridmember <- extract(rx, coordinates(occu))
+
 # Store the neighborhood in the format needed by the BUGS model
 cardneigh <- card(nb.occu.queen)
 adjmat <- matrix(nrow = length(nb.occu.queen), ncol = max(cardneigh))
@@ -235,14 +237,8 @@ for (i in 1:length(nb.occu.queen)) {
 }
 head(adjmat)
 ```
-The `wbneigh` object has our sets of neighbors, weights of each neighbor, and the cardinality of each site.  
-
-Attribute the sites to a grid cell
-```{r grid cell attributes}
-gridmember <- extract(rx, coordinates(occu))
-```
 Define the model in WinBUGS
-```{r new bugs model}
+```{r auto_occ bugs model}
 # Specify model in BUGS language
 setwd(here("bugs_output"))
 sink("auto_occ.txt")
@@ -273,7 +269,7 @@ model {
 sink()
 ```
 Prepare the data for WinBUGS and commit settings
-```{r new win.bugs data and settings}
+```{r win.bugs data and settings}
 #Bundle data
 win.data <- list (y=y, cardneigh=cardneigh, adjmat=adjmat, J=nsurveys, ncell = ncell(occu))
 
@@ -289,9 +285,78 @@ parameters <- c("alpha","beta","p")
 ni=6000;nb=1000;nt=1;nc=3
 ```
 Call WinBUGS from R
-```{r call winBUGS out2}
+```{r call winBUGS out}
 setwd(here("bugs_output"))
 out <- bugs(data = win.data, inits = inits, parameters.to.save = parameters, model.file = "auto_occ.txt", n.thin=nt,n.chains=nc, n.burnin=nb, n.iter=ni, debug=FALSE, DIC = FALSE, bugs.directory = BD, working.directory = here("bugs_output"))
 out
+```
+####This seemed to mostly work. I had to adjust the decay parameter $$ \phi $$ from 0.05 (starting value, beta0 ~ -2.7 and beta1 estimate of ~5.2) to 1.5 to effectively reduce the strength of the autocorrelation (beta0 ~ -1.2, beta1 ~2.3). Let's do an analysis of the data using a Condtionally AutoRegressive (CAR) model
+
+To use a CAR model for occurrence data, we first start by describing a standard bernoulli and then we add a special type of random effect $\rho$ in the linear predictor. The value of $\rho$ will vary across sites, and is defined by the neighborhood. Formally, $$ \rho_i|\rho_w \sim \mbox{Normal}(\frac{1}{n_w}\sum{\rho_w}, \frac{\tau^2}{n_w}) $$ where we have random draws from a Normal distribution with parameter $\mu$ equal to the average of the random effect in the neighborhood and the variance parameter $\tau^2$ scaled by the number of neighbors.  
+
+Given this, our Binomial GLM is as follows,$$ z_i \sim \mbox{Bernoulli}(\psi) $$ where $$\psi = \beta_0 + \rho_i $$
+
+First, we'll once again need to reformat our neighborhood information to something WinBUGS can read. Package `spdep` has a handy function `nb2wb` (neighborhood 2 WinBUGS) for this very task. 
+```{r nb2wb}
+winnb <- nb2WB(nb.occu.queen)
+str(winnb)
+```
+We can see that `winnb` contains our sets of neighbors, the weights of each neighbor, and the cardinality for each site. Nice, huh?! Ok, let's define the likelihood.
+```{r CAR model}
+# Specify model in BUGS language
+setwd(here("bugs_output"))
+sink("CAR.txt")
+cat("
+model {
+
+  # likelihood
+  for (i in 1:n) {
+    y[i] ~ dbern(psi[i])
+    logit(psi[i]) <- beta0 + rho[i] 
+  }
+
+  # CAR prior distribution for spatial random effect:
+  rho[1:n] ~ car.normal(adj[], weights[], num[], tauSp)
+
+  # other priors
+  beta0 ~ dnorm(0, 0.01)
+  tauSp <- pow(sdSp, -2)
+  sdSp ~ dunif(0, 5)
+}
+
+", fill = TRUE)
+sink()
+```
+Prepare the data for WinBUGS and specify settings
+```{r CAR data and settings}
+#Bundle data
+car.data <- list (y=occu@data@values, num=winnb$num, adj=winnb$adj,weights=winnb$weights, n = ncell(occu))
+
+#Set initial values
+car.inits <- function() {
+    list(beta0 = runif(1, -3, 3), rho = rep(0, n))
+}
+#parameters to be monitored
+car.parameters <- c("rho","beta0","tauSp", "psi")
+
+#MCMC settings
+ni=5000;nb=2000;nt=5;nc=3
+```
+Call WinBUGS from R
+```{r call WinBUGS from R for CAR}
+setwd(here("bugs_output"))
+out.car <- bugs(data = car.data, inits = car.inits, parameters.to.save = car.parameters, model.file = "CAR.txt", n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, bugs.dir = BD, working.directory = getwd(), debug = FALSE)
+out.car
+```
+```{r}
+rcar <- rasterFromXYZ(cbind(simgrid[, 1:2], out.car$mean$psi))
+rrho <- rasterFromXYZ(cbind(simgrid[, 1:2], out.car$mean$rho))
+
+#compare with true psi and simulated covariate
+par(mfrow = c(2,2))
+plot(occu, main = "True Occurrence")
+plot(rcar, main = "out.car$mean$psi")
+plot(Xraster, main = "Simulated Spatial Autocorrelation")
+plot(rrho, main = "out.car$mean$rho")
 ```
 
