@@ -1,0 +1,344 @@
+---
+title: "Join count test for non-spatial data"
+output:
+  html_notebook: default
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+This chunk contains the script to generate **z**, the simulated true state of occurrence, where psi is a function of the number of occupied neighbors. We'll test whether these data are indeed spatially autocorrelated with a *join count test*.
+```{r libraries, warning = FALSE}
+#simulate Gridded data and neighborhood effect
+library(sp)
+library(raster)
+library(spdep)
+#same dataset while learning
+set.seed(74)
+```
+```{r simulate z with non-spatial neighborhood}
+#Create matrix (lattice) of discrete, non-overlapping units
+mat.row <- 50
+mat.col <- 50
+
+mat <- matrix(1:(mat.row*mat.col), mat.row, mat.col)       #makes the matrix
+m2<-cbind(NA,rbind(NA,mat,NA),NA)                          #buffers with NAs
+addresses <- expand.grid(x = 1:mat.row, y = 1:mat.col)     #lists the locations of each unit
+
+#Create sets of cells (units) that are neighbors of i, using queen's rule
+N<-c()                                           
+for(i in 1:-1)
+  for(j in 1:-1)
+    if(i!=0 || j !=0)
+      N<-rbind(N,m2[addresses$x+i+1+nrow(m2)*(addresses$y+j)])
+N <- t(N)                                                      #transpose output
+N <- t(apply(N, 1, function(x)sort(x, na.last = TRUE)))        #sort output
+
+
+#Calculate cardinality of each cell
+numnn <- apply(N,1,function(x) sum(!(is.na(x))))
+
+#commit the number of grid cells
+nG <- mat.row*mat.col
+
+#commit the grid dimensions
+griddim <- mat.row
+
+#Define sampling conditions
+nsites <- mat.row*mat.col
+nsurveys <- 4
+nyears <- 1
+
+#define parameter values
+alpha <- -1
+beta <- 2.5
+
+
+#define initial occupancy across sites
+psi_init <- 0.4
+
+
+#define p
+p <- 0.8
+
+
+#Create arrays to hold true occurrence status and sampling realizations 
+w <- array(NA, dim = c(nsites,nyears))                #initial true occurrence to calculate neighborhood
+z <- array(NA, dim = c(nsites,nyears))                #Final true occurrence
+y <- matrix(NA, nrow=nsites, ncol = nsurveys)         #observation data
+x <- array(NA, dim = c(mat.row*mat.col, max(numnn)))  #neighborhood
+psi <- NA
+
+#Generate initial presence/absence to build neighborhood structure off of
+for(i in unique(N)){                         
+  w[i] <- rbinom(1,1,psi_init)}          #psi = 0.4 (sum(w) = 41)
+
+#Calculate neighborhood autocovariate
+for(i in 1:nG){                              #This is how Andy calculated it.
+  x[i,1]<-0                                  
+  for(j in 2:numnn[i]){
+    x[i,j]<-x[i,j-1]+w[N[i,j-1]]
+  }}
+
+#calculate psi from the initial state layer of presence/absence
+for(i in 1:nG){                                       
+  psi[i] <- plogis(alpha + beta*(x[i,numnn[i]]/numnn[i]))}
+
+#Generate true presence/absence across grid based off of neighborhood
+for(i in 1:nG){
+  z[i] <- rbinom(1, 1, psi[i])}                   
+
+#Package up for plotting
+add <- cbind(addresses,z)
+```
+
+Next, I made my simulated data a *Spatial object and visualize
+```{r visualize occurrence}
+#Define the extent for the join count analyses
+jc.extent <- extent(1,mat.col,0,mat.row)
+#set up a blank raster
+r <- raster(nrows=mat.row, ncols=mat.col, ext=jc.extent)
+
+#Make spatial object
+coordinates(add) <- ~x + y
+#Rasterize
+cell.ras <- rasterize(add, r, field=add$z)
+
+#Visualize
+par(mar = c(4,4,4,4), mfrow = c(1,2))
+plot(cell.ras)  #without cell borders
+plot(cell.ras)  #with cell borders
+plot(rasterToPolygons(cell.ras), add=TRUE, border='black', lwd=1)
+```
+
+Calculate neighborhood weights and then conduct the *join count test*
+```{r neighborhood and join count test}
+#Make a neighborhood object
+nb.queen <- cell2nb(nrow = nrow(cell.ras), ncol= ncol(cell.ras),type = "queen")
+
+#calculate weights of neighborhood 
+lwb.queen <- nb2listw(nb.queen, style = "B")
+
+#Conduct Join Count Test
+joincount.mc(as.factor(cell.ras@data@values), lwb.queen, nsim = 999)
+```
+The *join count permutation* tests whether the number of same color cell joins is greater than what would be expected under spatially random conditions. This test is the binary data counterpart to the common Moran's I test for spatial autocorrelation. The test seperates grey colored cells from green colored cells (absence from presence, respectively) and counts the number of times the colors "join" or are neighboring.  
+
+We see that both the number of absence joins and presence joins are greater than the expected value, and while absences are statistically signigcantly different from the expected values, though in terms of magnitude, they are not that unlike the expected values. 
+
+####So, the test suggests that we did not simulate spatially correlated data. I'll repeat this test but with data that have an explicit spatial structure.  
+
+We need to load additional libraries  
+```{r spatial autocorrelation libraries, warning=FALSE}
+#Load Libraries
+library(raster)
+library(gstat)
+library(lattice)
+library(ncf)
+library(MASS)
+library(spdep)
+library(R2WinBUGS)
+
+set.seed(74) #fix draws
+```
+Next we create a matrix and then generate a random variable, drawn from a multivariate normal distribution with \mu = 0 and \sigma = \exp(-\phi \times distance)
+```{r set up lattice and generate mvrnorm}
+# Set up a square lattice region
+simgrid <- expand.grid(1:50, 1:50)
+simgrid <- simgrid[order(-simgrid[, 2], simgrid[, 1]), ]
+simgrid <- cbind(simgrid, 1:nrow(simgrid))
+simgridx <- simgrid
+n <- nrow(simgrid)
+
+# Set up distance matrix
+distance <- as.matrix(dist(simgrid[, 1:2]))
+
+# Generate random variable
+phi <- 1.5
+X <- mvrnorm(1, rep(0,n),exp(-phi*distance))
+# Visualize results
+Xraster <- rasterFromXYZ(cbind(simgrid[, 1:2] - 0.5, X))
+rx <- rasterFromXYZ(simgridx)
+par(mfrow = c(1, 2))
+plot(1:100, exp(-phi * 1:100), type = "l", xlab = "Distance", ylab = "Correlation")
+plot(Xraster)
+```
+Next, generate occurrence data as a function of the `mvrnorm` autocovariate
+```{r generate spatial occurrence data}
+# Define coefficients of the occurrence-elevation regression
+# Modeling a quadratic effect
+beta0 <- -1
+beta1 <- 2.5
+
+#occupancy as a function of the spatially autocorrelated covariate
+psi1 <- plogis(beta0 + beta1*values(Xraster))
+
+
+# Plot the results
+par(mfrow = c(1, 1))
+plot(values(Xraster), psi1, cex = 0.5, main = expression(psi == f(X)))
+
+# Determine presence/absence with spatially autocorrelated covariate
+occu <- rbinom(n,1,psi1)
+occu <- rasterFromXYZ(cbind(coordinates(Xraster), occu))
+par(mfrow = c(1,1))
+plot(occu, main = "Presence distribution")
+```
+OK, now simulate sampling in the grid. We'll visit 200 locations
+```{r sample the grid}
+#Sampling
+#Visit a random 200 cells in the grid to estimate occurrence data
+sites <- sample(1:n, 200)
+coords <- coordinates(occu)[sites, ]
+
+fulldata <- data.frame(coords, Xvar = extract(Xraster, coords), occu = extract(occu, coords))
+
+plot(occu, main = "Occurrence distribution with sampling sites")
+points(coords, pch = 19, cex=0.5)
+```
+We now have sampled occurrence data. Let's see the results of a join count test to check whether we have indeed simulated spatially autocorrelated data. 
+```{r neighborhood and join count test for correlated data}
+#Make a neighborhood object
+nb.occu.queen <- cell2nb(nrow = nrow(occu), ncol= ncol(occu),type = "queen")
+
+#calculate weights of neighborhood 
+lwb.occu.queen <- nb2listw(nb.occu.queen, style = "B")
+
+#Conduct Join Count Test
+joincount.mc(as.factor(occu@data@values), lwb.occu.queen, nsim = 999)
+```
+####We now have strong evidence that spatial autocorrelation exists in our data.
+
+#####Time to see if we can detect this spatial autocorrelation in a spatial autologistic model, following Royle and Dorazio 2008, chapter & section 9.5
+
+Set libraries
+```{r load WinBUGS libraries and set bugs directory, warning=FALSE}
+library(R2WinBUGS)
+library(here)
+BD <- "C:/Users/Brent/Documents/WinBUGS14/"
+```
+
+Since we'll be acknowledging imperfect detection, we need to simulate visits to our 200 sites. Let's say we visit each site 3 times and record whether we detect the individual during our survey.
+```{r simulate vists to 200 sites}
+p_init <- 0.5
+nsurveys <- 3
+y <- rbinom(length(occu@data@values),nsurveys,values(occu)*p_init)
+```
+We also need to extract and format the `nb.occu.queen` object to be compatible with winBUGS
+```{r nb2wb}
+# Store the neighborhood in the format needed by the BUGS model
+cardneigh <- card(nb.occu.queen)
+adjmat <- matrix(nrow = length(nb.occu.queen), ncol = max(cardneigh))
+for (i in 1:length(nb.occu.queen)) {
+    adjmat[i, 1:cardneigh[i]] <- nb.occu.queen[[i]]
+}
+head(adjmat)
+```
+The `wbneigh` object has our sets of neighbors, weights of each neighbor, and the cardinality of each site.  
+
+Define the model in WinBUGS
+```{r winbugs autologistic model}
+setwd(here("bugs_output")) 
+   sink("panel94_model.txt")
+    cat("
+        model{
+        
+        alpha ~ dnorm(0,.1)
+        beta  ~ dnorm(0,.1)
+        p ~ dunif(0,1)
+        
+        for(i in 1:nG){
+        x[i,1]<-0
+        for(j in 1:numnn[i]){
+        x[i,j+1]<-x[i,j]+z[N[i,j]]
+        }
+        logit(psi[i])<- alpha + beta*(x[i,numnn[i]+1]/numnn[i])
+        z[i]~dbern(psi[i])
+        mu[i]<-z[i]*p
+        y[i]~dbin(mu[i],J)
+        }
+        }
+        ",fill=TRUE)
+sink()
+
+```
+Prepare the data for WinBUGS and commit settings
+```{r win.data and settings}
+#Bundle data
+win.data <- list (y=y, numnn=cardneigh, N=adjmat, J=nsurveys, nG = ncell(occu))
+
+#Set initial values
+zst<-ifelse(y>0,1,0)  #starting values for z
+inits <- function()
+  list (z=zst, alpha=rnorm(1),beta=rnorm(1), p=runif(1) )
+
+#parameters to be monitored
+parameters <- c("alpha","beta","p")
+
+#MCMC settings
+ni=6000;nb=1000;nt=1;nc=3
+```
+Call WinBUGS from R
+```{r call bugs from R}
+setwd(here("bugs_output"))
+out <- bugs(data = win.data, inits = inits, parameters.to.save = parameters, model.file = "panel94_model.txt", n.thin=nt,n.chains=nc, n.burnin=nb, n.iter=ni, debug=FALSE, DIC = FALSE, bugs.directory = BD, working.directory = here("bugs_output"))
+out
+```
+####Well, that didn't work. Remember, we simulated psi as alpha = -1, beta = 2.5. Let's try a different route.
+```{r grid cell attributes}
+gridmember <- extract(rx, coordinates(occu))
+```
+Specify BUGS model
+```{r new bugs model}
+# Specify model in BUGS language
+setwd(here("bugs_output"))
+sink("auto_occ.txt")
+cat("
+model {
+
+      # Specify priors
+      alpha ~ dnorm(0,.1)
+      beta  ~ dnorm(0,.1)
+      p ~ dunif(0,1)  
+
+      # Ecological process
+      for (i in 1:ncell){
+      for (j in 1:cardneigh[i]){
+        ConnSite[i,j] <- z[adjmat[i,j]]
+      } 
+      D[i] <- sum(ConnSite[i, 1:cardneigh[i]]) / cardneigh[i]
+      z[i] ~ dbern(psi[i])
+      logit(psi[i]) <- alpha + beta * D[i]
+      
+      # Observation process
+      mu[i]<-z[i]*p
+      y[i]~dbin(mu[i],J)
+      }
+}
+
+", fill = TRUE)
+sink()
+```
+Prepare the data for WinBUGS and commit settings
+```{r new win.bugs data and settings}
+#Bundle data
+win.data2 <- list (y=y, cardneigh=cardneigh, adjmat=adjmat, J=nsurveys, ncell = ncell(occu))
+
+#Set initial values
+zst<-ifelse(y>0,1,0)  #starting values for z
+inits <- function()
+  list (z=zst, alpha=rnorm(1),beta=rnorm(1), p=runif(1) )
+
+#parameters to be monitored
+parameters <- c("alpha","beta","p")
+
+#MCMC settings
+ni=6000;nb=1000;nt=1;nc=3
+```
+#Call WinBUGS from R
+```{r call winBUGS out2}
+setwd(here("bugs_output"))
+out2 <- bugs(data = win.data2, inits = inits, parameters.to.save = parameters, model.file = "auto_occ.txt", n.thin=nt,n.chains=nc, n.burnin=nb, n.iter=ni, debug=FALSE, DIC = FALSE, bugs.directory = BD, working.directory = here("bugs_output"))
+out2
+```
+
