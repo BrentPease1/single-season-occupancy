@@ -269,9 +269,9 @@ model {
       # Observation process
       for (k in 1:nsurveys){
       y[i,k]~dbern(mu[i])      
-      mu[i]<-z[i]*p
+      
       }
-
+      mu[i]<-z[i]*p
       }
 }
 
@@ -284,7 +284,7 @@ Prepare the data for WinBUGS and commit settings
 win.data <- list (y=y, cardneigh=cardneigh, adjmat=adjmat, nsurveys=nsurveys, ncell = ncell(occu))
 
 #Set initial values
-zst<-ifelse(y>0,1,0)  #starting values for z
+zst<-apply(y,1,max)  #starting values for z
 inits <- function()
   list (z=zst, alpha=rnorm(1),beta=rnorm(1), p=runif(1) )
 
