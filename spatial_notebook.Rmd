@@ -170,7 +170,7 @@ beta0 <- -1
 beta1 <- 2.5
 
 #occupancy as a function of the spatially autocorrelated covariate
-psi1 <- plogis(beta0 + beta1*values(Xraster))
+psi1 <- plogis(beta0 + values(Xraster))
 
 # Plot the results
 par(mfrow = c(1, 1))
@@ -264,7 +264,7 @@ model {
       } 
       D[i] <- sum(ConnSite[i, 1:cardneigh[i]]) / cardneigh[i]
       z[i] ~ dbern(psi[i])
-      logit(psi[i]) <- alpha + beta * D[i]
+      logit(psi[i]) <- alpha + D[i]
       
       # Observation process
       for (k in 1:nsurveys){
@@ -289,7 +289,7 @@ inits <- function()
   list (z=zst, alpha=rnorm(1),beta=rnorm(1), p=runif(1) )
 
 #parameters to be monitored
-parameters <- c("alpha","beta","p")
+parameters <- c("alpha","p")
 
 #MCMC settings
 ni=6000;nb=1000;nt=1;nc=3
@@ -361,7 +361,7 @@ out.car
 Get the posterior means of the model parameters
 
 ```{r out.car means}
-means <- c(out.car$mean$beta0, out.car$mean$tauSp)
+means <- c(out.car$mean$beta0, out.car$mean$tauSp, mean(out.car$mean$psi))
 means
 ```
 
@@ -377,4 +377,60 @@ plot(rcar, main = "out.car$mean$psi")
 plot(Xraster, main = "Simulated Spatial Autocorrelation")
 plot(rrho, main = "out.car$mean$rho")
 ```
+The predictions looks pretty good. Addtionally, the map of our spatial parameter $\rho$ looks almost identical to the `mvrnorm` variable used to simulate the occurrence data.  
 
+Addtionally, You might have noticed that we assumed perfect detecetion in the CAR model. This, again, is probably unrealistic due to the nature of sampling wildlife. Let's allow for imperfect detection in the CAR model
+```{r imperfect CAR model}
+# Specify model in BUGS language
+setwd(here("bugs_output"))
+sink("imperfect_CAR.txt")
+cat("
+model {
+
+  # likelihood
+  for (i in 1:n) {
+    z[i] ~ dbern(psi[i])
+    logit(psi[i]) <- beta0 + rho[i] 
+
+  #oberservation process
+  for(j in 1:nsurveys){
+  y[i,j] ~ dbern(mu[i])
+  }
+  mu[i] <- z[i]*p
+  }
+
+  # CAR prior distribution for spatial random effect:
+  rho[1:n] ~ car.normal(adj[], weights[], num[], tauSp)
+
+  # other priors
+  beta0 ~ dnorm(0, 0.01)
+  tauSp <- pow(sdSp, -2)
+  sdSp ~ dunif(0, 5)
+  p ~ dunif(0,1)
+}
+
+", fill = TRUE)
+sink()
+```
+Prepare the data for WinBUGS and specify settings
+```{r imperfect CAR data and settings}
+#Bundle data
+imp.car.data <- list (y=y, num=winnb$num, adj=winnb$adj,weights=winnb$weights, n = ncell(occu), nsurveys = nsurveys)
+
+#Set initial values
+zst <- apply(y,1,max)
+car.inits <- function() {
+    list(z = zst, beta0 = runif(1, -3, 3), rho = rep(0, n),p = runif(1))
+}
+#parameters to be monitored
+car.parameters <- c("beta0","rho","tauSp", "psi","p")
+
+#MCMC settings
+ni=5000;nb=2000;nt=5;nc=3
+```
+Call WinBUGS from R
+```{r call WinBUGS from R for imperfect CAR}
+setwd(here("bugs_output"))
+out.imp.car <- bugs(data = imp.car.data, inits = car.inits, parameters.to.save = car.parameters, model.file = "imperfect_CAR.txt", n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, bugs.dir = BD, working.directory = getwd(), DIC = FALSE, debug = FALSE)
+out.car
+```
