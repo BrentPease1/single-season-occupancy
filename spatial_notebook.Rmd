@@ -1,5 +1,5 @@
 ---
-title: "Join count test for non-spatial data"
+title: "An exploration in spatial autocorrelation"
 output:
   html_notebook: default
   html_document:
@@ -184,17 +184,19 @@ plot(occu, main = "Occurrence")
 ```
 OK, now simulate sampling in the grid. We'll visit 200 locations
 ```{r sample the grid}
-#Sampling
-#Visit a random 200 cells in the grid to estimate occurrence data
-sites <- sample(1:n, 200)
-coords <- coordinates(occu)[sites, ]
+#assign coordinates of all locations
+coords <- coordinates(occu)
 
 #package data
 fulldata <- data.frame(coords, Xvar = extract(Xraster, coords), occu = extract(occu, coords))
 
+#Visit a random 200 cells in the grid to estimate occurrence data
+sites <- sample(1:n, 200)
+sampledata <- fulldata[sites,]
+
 #visualize
 plot(occu, main = "Occurrence distribution with sampling sites")
-points(coords, pch = 19, cex=0.5)
+points(sampledata[,1:2], pch = 19, cex=0.5)
 ```
 We now have sampled occurrence data. Let's see the results of a join count test to check whether we have indeed simulated spatially autocorrelated data. 
 ```{r neighborhood and join count test for correlated data}
@@ -209,7 +211,7 @@ joincount.mc(as.factor(occu@data@values), lwb.occu.queen, nsim = 999)
 ```
 ####We now have strong evidence that spatial autocorrelation exists in our data.
 
-#####Time to see if we can detect this spatial autocorrelation in a spatial autologistic model, following Royle and Dorazio 2008, chapter & section 9.5
+#####Time to see if we can detect this spatial autocorrelation in a spatial autologistic model
 
 Set libraries
 ```{r load WinBUGS libraries and set bugs directory, message = FALSE, warning=FALSE}
@@ -221,8 +223,13 @@ BD <- "C:/Users/Brent/Documents/WinBUGS14/"
 Since we'll be acknowledging imperfect detection, we need to simulate visits to our 200 sites. Let's say we visit each site 3 times and record whether we detect the individual during our survey.
 ```{r simulate vists to 200 sites}
 p_init <- 0.5
+mu <- occu@data@values*p_init
 nsurveys <- 3
-y <- rbinom(length(occu@data@values),nsurveys,values(occu)*p_init)
+y <- matrix(NA, nrow = n, ncol=nsurveys)
+for(i in 1:nsurveys){
+  y[,i] <- rbinom(n, fulldata$occu, mu)
+}
+ytmp <- rbinom(length(occu@data@values),nsurveys,p_init)
 ```
 We also need to extract and format the `nb.occu.queen` object to be compatible with winBUGS
 ```{r autologistic neighborhood}
