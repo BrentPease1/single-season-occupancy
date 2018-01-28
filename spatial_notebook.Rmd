@@ -267,8 +267,11 @@ model {
       logit(psi[i]) <- alpha + beta * D[i]
       
       # Observation process
+      for (k in 1:nsurveys){
+      y[i,k]~dbern(mu[i])      
       mu[i]<-z[i]*p
-      y[i]~dbin(mu[i],J)
+      }
+
       }
 }
 
@@ -278,7 +281,7 @@ sink()
 Prepare the data for WinBUGS and commit settings
 ```{r win.bugs data and settings}
 #Bundle data
-win.data <- list (y=y, cardneigh=cardneigh, adjmat=adjmat, J=nsurveys, ncell = ncell(occu))
+win.data <- list (y=y, cardneigh=cardneigh, adjmat=adjmat, nsurveys=nsurveys, ncell = ncell(occu))
 
 #Set initial values
 zst<-ifelse(y>0,1,0)  #starting values for z
