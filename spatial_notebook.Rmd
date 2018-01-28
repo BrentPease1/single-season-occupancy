@@ -419,7 +419,7 @@ imp.car.data <- list (y=y, num=winnb$num, adj=winnb$adj,weights=winnb$weights, n
 
 #Set initial values
 zst <- apply(y,1,max)
-car.inits <- function() {
+imp.car.inits <- function() {
     list(z = zst, beta0 = runif(1, -3, 3), rho = rep(0, n),p = runif(1))
 }
 #parameters to be monitored
@@ -431,6 +431,26 @@ ni=5000;nb=2000;nt=5;nc=3
 Call WinBUGS from R
 ```{r call WinBUGS from R for imperfect CAR}
 setwd(here("bugs_output"))
-out.imp.car <- bugs(data = imp.car.data, inits = car.inits, parameters.to.save = car.parameters, model.file = "imperfect_CAR.txt", n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, bugs.dir = BD, working.directory = getwd(), DIC = FALSE, debug = FALSE)
+out.imp.car <- bugs(data = imp.car.data, inits = imp.car.inits, parameters.to.save = car.parameters, model.file = "imperfect_CAR.txt", n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, bugs.dir = BD, working.directory = getwd(), DIC = FALSE, debug = FALSE)
 out.car
+```
+```{r out.imp.car means}
+imp.means <- c(out.imp.car$mean$beta0, out.imp.car$mean$tauSp, mean(out.imp.car$mean$psi))
+imp.means
+```
+Store results in raster and compare with true values
+```{r visualize imp.car}
+rimpcar <- rasterFromXYZ(cbind(simgrid[, 1:2], out.imp.car$mean$psi))
+rimpsd <- rasterFromXYZ(cbind(simgrid[,1:2],out.imp.car$sd$psi))
+rimprho <- rasterFromXYZ(cbind(simgrid[, 1:2], out.imp.car$mean$rho))
+
+#predictions and SD
+par(mfrow = c(1,1))
+plot(stack(rimpcar, rimpsd), main = c("Predictions", "Standard errors")) 
+#compare with true psi and simulated covariate
+par(mfrow = c(2,2))
+plot(occu, main = "True Occurrence")
+plot(rimpcar, main = "out.imp.car$mean$psi")
+plot(Xraster, main = "Simulated Spatial Autocorrelation")
+plot(rimprho, main = "out.imp.car$mean$rho")
 ```
