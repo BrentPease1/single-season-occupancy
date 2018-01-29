@@ -229,7 +229,6 @@ y <- matrix(NA, nrow = n, ncol=nsurveys)
 for(i in 1:nsurveys){
   y[,i] <- rbinom(n, fulldata$occu, mu)
 }
-ytmp <- rbinom(length(occu@data@values),nsurveys,p_init)
 ```
 We also need to extract and format the `nb.occu.queen` object to be compatible with winBUGS
 ```{r autologistic neighborhood}
@@ -497,10 +496,116 @@ plot(values(Yraster),psitmp,cex=0.5)
 plot(values(Yraster), psi1, cex = 0.5, main = expression(psi == f(Y)))
 
 # Determine presence/absence with spatially autocorrelated covariate
-occu <- rbinom(n,1,psi1)
-occu <- rasterFromXYZ(cbind(coordinates(Yraster), occu))
+occu.ipp <- rbinom(n,1,psi1)
+occu.ipp <- rasterFromXYZ(cbind(coordinates(Yraster), occu.ipp))
 par(mfrow = c(1,1))
-plot(occu, main = "Occurrence")
+plot(occu.ipp, main = "Occurrence")
 
 ```
+Test for spatial autocorrelation with *join count test*
+```{r neighborhood and join count test for IPPP data}
+#Make a neighborhood object
+nb.ipp <- cell2nb(nrow = nrow(occu.ipp), ncol= ncol(occu.ipp),type = "queen")
+
+#calculate weights of neighborhood 
+lwb.ipp <- nb2listw(nb.ipp, style = "B")
+
+#Conduct Join Count Test
+joincount.mc(as.factor(occu@data@values), lwb.ipp, nsim = 999)
+```
+It appears that we have a greater number of same-color joins than we would expect under CSR.  
+
+Let's generate det/non-det data and run a CAR model
+```{r neighborhood, sample y, prep data}
+winnb.ipp <- nb2WB(nb.ipp)  #winbugs neighborhood format
+
+p_init <- 0.5
+mu <- occu.ipp@data@values*p_init
+nsurveys <- 3
+y <- matrix(NA, nrow = nrow(simgrid), ncol=nsurveys)
+for(i in 1:nsurveys){
+  y[,i] <- rbinom(nrow(simgrid), 1, mu)
+}
+
+for1 <- values(forest)
+for2 <- (values(forest)^2)
+```
+
+```{r ipp CAR model}
+# Specify model in BUGS language
+setwd(here("bugs_output"))
+sink("ipp_CAR.txt")
+cat("
+model {
+
+  # likelihood
+  for (i in 1:n) {
+    z[i] ~ dbern(psi[i])
+    logit(psi[i]) <- beta0 + beta1*forest[i] + beta2*forest2[i] + rho[i] 
+
+  #oberservation process
+  for(j in 1:nsurveys){
+  y[i,j] ~ dbern(mu[i])
+  }
+  mu[i] <- z[i]*p
+  }
+
+  # CAR prior distribution for spatial random effect:
+  rho[1:n] ~ car.normal(adj[], weights[], num[], tauSp)
+
+  # other priors
+  beta0 ~ dnorm(0, 0.01)
+  beta1 ~ dnorm(0, 0.01)
+  beta2 ~ dnorm(0, 0.01)
+  tauSp <- pow(sdSp, -2)
+  sdSp ~ dunif(0, 5)
+  p ~ dunif(0,1)
+}
+
+", fill = TRUE)
+sink()
+```
+Prepare the data for WinBUGS and specify settings
+```{r ipp CAR data and settings}
+#Bundle data
+ipp.car.data <- list (y=y, num=winnb.ipp$num, adj=winnb.ipp$adj,weights=winnb.ipp$weights, n = ncell(occu.ipp), nsurveys = nsurveys, forest = for1,forest2 = for2)
+
+#Set initial values
+zst <- apply(y,1,max)
+ipp.car.inits <- function() {
+    list(z = zst, beta0 = runif(1, -3, 3),beta1 = runif(1, -3, 3),beta2 = runif(1, -3, 3), rho = rep(0, n),p = runif(1))
+}
+#parameters to be monitored
+ipp.car.parameters <- c("beta0","beta1","beta2","rho","tauSp", "psi","p")
+
+#MCMC settings
+ni=5000;nb=2000;nt=5;nc=3
+```
+Call WinBUGS from R
+```{r call WinBUGS from R for ipp CAR}
+setwd(here("bugs_output"))
+out.ipp.car <- bugs(data = ipp.car.data, inits = ipp.car.inits, parameters.to.save = ipp.car.parameters, model.file = "ipp_CAR.txt", n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, bugs.dir = BD, working.directory = getwd(), DIC = FALSE, debug = FALSE)
+out.ipp.car
+```
+
+```{r out.ipp.car means}
+ipp.means <- c(out.ipp.car$mean$beta0, out.ipp.car$mean$beta1, out.ipp.car$mean$beta2,out.ipp.car$mean$tauSp, mean(out.ipp.car$mean$psi))
+ipp.means
+```
+
+Store results in raster and compare with true values
+```{r visualize ipp car}
+rippcar <- rasterFromXYZ(cbind(simgrid[, 1:2], out.ipp.car$mean$psi))
+ripprho <- rasterFromXYZ(cbind(simgrid[, 1:2], out.ipp.car$mean$rho))
+
+#compare with true psi and simulated covariate
+par(mfrow = c(2,2))
+plot(occu.ipp, main = "True Occurrence")
+plot(rippcar, main = "out.car$mean$psi")
+plot(Yraster, main = "Simulated Spatial Autocorrelation")
+plot(ripprho, main = "out.car$mean$rho")
+```
+
+
+
 
