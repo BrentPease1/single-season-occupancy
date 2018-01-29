@@ -454,3 +454,53 @@ plot(rimpcar, main = "out.imp.car$mean$psi")
 plot(Xraster, main = "Simulated Spatial Autocorrelation")
 plot(rimprho, main = "out.imp.car$mean$rho")
 ```
+####OK, that was a brief intro to CAR models
+
+Let's look at the Inhomogeneous poisson process and use it to impose spatial structure onto a grid.
+```{r IPPP}
+# Generate IPPP
+set.seed(74)
+phi <- 0.05
+lamb <- function(x,y){exp(-phi*x) + exp(-phi*y)}
+Y <- rpoispp(lamb, win = as.owin(simgrid))
+Y <- density(Y)
+Y <- as.vector(Y$v)
+# Visualize results
+Yraster <- rasterFromXYZ(cbind(simgrid[, 1:2] - 0.5, Y))
+par(mfrow = c(1, 2))
+plot(1:100, exp(-phi * 1:100), type = "l", xlab = "Distance", ylab = "Correlation")
+plot(Yraster)
+```
+Let's also create a covariate to influence the occurrence data
+```{r forest covariate}
+forest <- raster(matrix(rnorm(n), 50, 50), xmn = 0, xmx = 50, ymn = 0, ymx = 50)
+
+plot(forest, main = "Forest Cover")
+```
+OK, now simulate occurrence data based on spatial process and forest cover
+```{r IPPP occurrence data}
+# Define coefficients of the occurrence-elevation regression
+# Modeling a quadratic effect
+beta0 <- -1
+beta1 <- 3
+beta2 <- -2
+beta3 <- 2
+
+#occupancy as a function of the spatially autocorrelated covariate
+psitmp <- plogis(beta0 + beta1*values(forest) + beta2*values(forest)^2)
+psi1 <- plogis(beta0 + beta1*values(forest) + beta2*values(forest)^2 + beta3*values(Yraster))
+
+
+# Plot the results
+par(mfrow = c(1, 2))
+plot(values(Yraster),psitmp,cex=0.5)
+plot(values(Yraster), psi1, cex = 0.5, main = expression(psi == f(Y)))
+
+# Determine presence/absence with spatially autocorrelated covariate
+occu <- rbinom(n,1,psi1)
+occu <- rasterFromXYZ(cbind(coordinates(Yraster), occu))
+par(mfrow = c(1,1))
+plot(occu, main = "Occurrence")
+
+```
+
