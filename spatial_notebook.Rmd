@@ -141,7 +141,7 @@ library(R2WinBUGS)
 set.seed(74) #fix draws
 ```
 Next we create a matrix and then generate a random variable, drawn from a multivariate normal distribution with $$ X \sim \mbox{MVN}(0, \Sigma) $$ where $$ \Sigma = \exp(-\phi \times distance) $$
-```{r set up lattice and generate mvrnorm}
+```{r set up lattice and generate mvrnorm, warning = FALSE}
 # Set up a square lattice region
 simgrid <- expand.grid(1:50, 1:50)
 simgrid <- simgrid[order(-simgrid[, 2], simgrid[, 1]), ]
@@ -163,7 +163,7 @@ plot(1:100, exp(-phi * 1:100), type = "l", xlab = "Distance", ylab = "Correlatio
 plot(Xraster)
 ```
 Now we generate occurrence data as a function of the `mvrnorm` autocovariate
-```{r generate spatial occurrence data}
+```{r generate spatial occurrence data, warning = FALSE}
 # Define coefficients of the occurrence-elevation regression
 # Modeling a quadratic effect
 beta0 <- -1
@@ -172,14 +172,13 @@ beta1 <- 2.5
 #occupancy as a function of the spatially autocorrelated covariate
 psi1 <- plogis(beta0 + beta1*values(Xraster))
 
-# Plot the results
-par(mfrow = c(1, 1))
-plot(values(Xraster), psi1, cex = 0.5, main = expression(psi == f(X)))
-
 # Determine presence/absence with spatially autocorrelated covariate
 occu <- rbinom(n,1,psi1)
 occu <- rasterFromXYZ(cbind(coordinates(Xraster), occu))
-par(mfrow = c(1,1))
+
+# Plot the results
+par(mfrow = c(1, 2))
+plot(values(Xraster), psi1, cex = 0.5, main = expression(psi == f(X)))
 plot(occu, main = "Occurrence")
 ```
 OK, now simulate sampling in the grid. We'll visit 200 locations
@@ -244,7 +243,7 @@ for (i in 1:length(nb.occu.queen)) {
 head(adjmat)
 ```
 Define the model in WinBUGS
-```{r auto_occ bugs model}
+```{r auto_occ bugs model, warning=FALSE}
 # Specify model in BUGS language
 setwd(here("bugs_output"))
 sink("auto_occ.txt")
@@ -294,7 +293,7 @@ parameters <- c("alpha","beta","p")
 ni=6000;nb=1000;nt=1;nc=3
 ```
 Call WinBUGS from R
-```{r call winBUGS out}
+```{r call winBUGS out, warning=FALSE}
 setwd(here("bugs_output"))
 out <- bugs(data = win.data, inits = inits, parameters.to.save = parameters, model.file = "auto_occ.txt", n.thin=nt,n.chains=nc, n.burnin=nb, n.iter=ni, debug=FALSE, DIC = FALSE, bugs.directory = BD, working.directory = here("bugs_output"))
 out
@@ -311,7 +310,7 @@ winnb <- nb2WB(nb.occu.queen)
 str(winnb)
 ```
 We can see that `winnb` contains our sets of neighbors, the weights of each neighbor, and the cardinality for each site. Nice, huh?! Ok, let's define the likelihood.
-```{r CAR model}
+```{r CAR model, warning = FALSE}
 # Specify model in BUGS language
 setwd(here("bugs_output"))
 sink("CAR.txt")
@@ -352,7 +351,7 @@ car.parameters <- c("beta0","rho","tauSp", "psi")
 ni=5000;nb=2000;nt=5;nc=3
 ```
 Call WinBUGS from R
-```{r call WinBUGS from R for CAR}
+```{r call WinBUGS from R for CAR, warning = FALSE}
 setwd(here("bugs_output"))
 out.car <- bugs(data = car.data, inits = car.inits, parameters.to.save = car.parameters, model.file = "CAR.txt", n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, bugs.dir = BD, working.directory = getwd(), debug = FALSE)
 out.car
@@ -379,7 +378,7 @@ plot(rrho, main = "out.car$mean$rho")
 The predictions looks pretty good. Addtionally, the map of our spatial parameter $\rho$ looks almost identical to the `mvrnorm` variable used to simulate the occurrence data.  
 
 Addtionally, You might have noticed that we assumed perfect detecetion in the CAR model. This, again, is probably unrealistic due to the nature of sampling wildlife. Let's allow for imperfect detection in the CAR model
-```{r imperfect CAR model}
+```{r imperfect CAR model, warning = FALSE}
 # Specify model in BUGS language
 setwd(here("bugs_output"))
 sink("imperfect_CAR.txt")
@@ -428,7 +427,7 @@ car.parameters <- c("beta0","rho","tauSp", "psi","p")
 ni=5000;nb=2000;nt=5;nc=3
 ```
 Call WinBUGS from R
-```{r call WinBUGS from R for imperfect CAR}
+```{r call WinBUGS from R for imperfect CAR, warninig = FALSE}
 setwd(here("bugs_output"))
 out.imp.car <- bugs(data = imp.car.data, inits = imp.car.inits, parameters.to.save = car.parameters, model.file = "imperfect_CAR.txt", n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, bugs.dir = BD, working.directory = getwd(), DIC = FALSE, debug = FALSE)
 out.car
@@ -456,7 +455,7 @@ plot(rimprho, main = "out.imp.car$mean$rho")
 ####OK, that was a brief intro to CAR models
 
 Let's look at the Inhomogeneous poisson process and use it to impose spatial structure onto a grid.
-```{r IPPP}
+```{r IPPP, warning = FALSE}
 # Generate IPPP
 set.seed(74)
 phi <- 0.05
@@ -477,7 +476,7 @@ forest <- raster(matrix(rnorm(n), 50, 50), xmn = 0, xmx = 50, ymn = 0, ymx = 50)
 plot(forest, main = "Forest Cover")
 ```
 OK, now simulate occurrence data based on spatial process and forest cover
-```{r IPPP occurrence data}
+```{r IPPP occurrence data, warning = FALSE}
 # Define coefficients of the occurrence-elevation regression
 # Modeling a quadratic effect
 beta0 <- -1
@@ -489,15 +488,14 @@ beta3 <- 2
 psitmp <- plogis(beta0 + beta1*values(forest) + beta2*values(forest)^2)
 psi1 <- plogis(beta0 + beta1*values(forest) + beta2*values(forest)^2 + beta3*values(Yraster))
 
+# Determine presence/absence with spatially autocorrelated covariate
+occu.ipp <- rbinom(n,1,psi1)
+occu.ipp <- rasterFromXYZ(cbind(coordinates(Yraster), occu.ipp))
 
 # Plot the results
 par(mfrow = c(1, 2))
 plot(values(Yraster),psitmp,cex=0.5)
 plot(values(Yraster), psi1, cex = 0.5, main = expression(psi == f(Y)))
-
-# Determine presence/absence with spatially autocorrelated covariate
-occu.ipp <- rbinom(n,1,psi1)
-occu.ipp <- rasterFromXYZ(cbind(coordinates(Yraster), occu.ipp))
 par(mfrow = c(1,1))
 plot(occu.ipp, main = "Occurrence")
 
@@ -531,7 +529,7 @@ for1 <- values(forest)
 for2 <- (values(forest)^2)
 ```
 
-```{r ipp CAR model}
+```{r ipp CAR model, warning = FALSE}
 # Specify model in BUGS language
 setwd(here("bugs_output"))
 sink("ipp_CAR.txt")
@@ -582,7 +580,7 @@ ipp.car.parameters <- c("beta0","beta1","beta2","rho","tauSp", "psi","p")
 ni=5000;nb=2000;nt=5;nc=3
 ```
 Call WinBUGS from R
-```{r call WinBUGS from R for ipp CAR}
+```{r call WinBUGS from R for ipp CAR, warning = FALSE}
 setwd(here("bugs_output"))
 out.ipp.car <- bugs(data = ipp.car.data, inits = ipp.car.inits, parameters.to.save = ipp.car.parameters, model.file = "ipp_CAR.txt", n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, bugs.dir = BD, working.directory = getwd(), DIC = FALSE, debug = FALSE)
 out.ipp.car
@@ -594,7 +592,7 @@ ipp.means
 ```
 
 Store results in raster and compare with true values
-```{r visualize ipp car}
+```{r visualize ipp car, warning = FALSE}
 rippcar <- rasterFromXYZ(cbind(simgrid[, 1:2], out.ipp.car$mean$psi))
 ripprho <- rasterFromXYZ(cbind(simgrid[, 1:2], out.ipp.car$mean$rho))
 
